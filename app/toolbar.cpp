@@ -201,7 +201,7 @@ void setDvbBandwidth(App& a, int idx) {
     savePrefs(a);
 }
 
-// ---- radios on the network (issues #28, #54, #68): a PlutoSDR by IP, an rtl_tcp server, a SoapyRemote server, a SpyServer, a Hermes Lite 2
+// ---- radios on the network (issues #28, #54, #68): a PlutoSDR by IP, an rtl_tcp server, a SoapyRemote server, a SpyServer, an SDR++ server, a Hermes Lite 2
 
 static bool netTypeSearches(int t) { return t == NetRadio::HermesLite2 || t == NetRadio::RedPitaya; }   // found by a discovery broadcast
 
@@ -247,12 +247,17 @@ void netRadioWindow(App& a) {
     if (!a.netAddOpen) return;
     if (netTypeSearches(a.netAddType) && !a.netSearched && !a.netDiscovery) startNetDiscovery(a);   // the window opened with that type
     ImGui::SetNextWindowSize(ImVec2(420 * gUi, 0), ImGuiCond_Appearing);
+    if (a.setupOpen) {   // opened from the setup wizard: in front of it (the wizard's panel is centred and does not move)
+        const ImVec2 disp = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowPos(ImVec2(disp.x * 0.5f, disp.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowFocus();
+    }
     if (!ImGui::Begin(trw("Network radios"), &a.netAddOpen, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize)) { ImGui::End(); return; }
     const bool busy = a.netAddProbe != nullptr;
     ImGui::BeginDisabled(busy);
-    static const char* kTypes[] = {"PlutoSDR (by IP)", "rtl_tcp", "SoapyRemote", "SpyServer", "Hermes Lite 2", "Red Pitaya"};
+    static const char* kTypes[] = {"PlutoSDR (by IP)", "rtl_tcp", "SoapyRemote", "SpyServer", "Hermes Lite 2", "Red Pitaya", "SDR++ server"};
     ImGui::SetNextItemWidth(200 * gUi);
-    if (ImGui::Combo("Type", &a.netAddType, kTypes, 6)) {
+    if (ImGui::Combo("Type", &a.netAddType, kTypes, IM_ARRAYSIZE(kTypes))) {
         const auto t = (NetRadio::Type)a.netAddType;
         a.netAddPort = netRadioDefaultPort(t);
         const std::string h = a.netAddHost;
@@ -296,6 +301,9 @@ void netRadioWindow(App& a) {
         ImGui::SameLine(); ImGui::TextDisabled("%s", tr("0 = libiio's default"));
         ImGui::TextDisabled("%s", tr("Type the PlutoSDR's IP (USB gadget 192.168.2.1, or its Ethernet address) and Connect. It is then in the Radio list."));
     }
+    if (a.netAddType == NetRadio::SdrppServer)
+        ImGui::TextDisabled("%s", tr("SDR++ running as a server (sdrpp --server). It takes one client at a time: close SDR++'s own client first. "
+                                     "Its source's settings (gain mode, bias tee, AGC, ...) show up under Radio settings once connected."));
     if (a.netAddType == NetRadio::SoapyRemote && !soapySupported()) ImGui::TextColored(ImVec4(0.95f, 0.78f, 0.25f, 1), "%s", tr("This build has no SoapySDR, which SoapyRemote needs."));
     if (a.netAddType == NetRadio::SoapyRemote) {
         ImGui::InputTextWithHint(tr("Remote driver"), "mirisdr  (empty: list what the server offers)", a.netAddRemote, sizeof a.netAddRemote);
@@ -609,8 +617,6 @@ void toolbarParts(App& a, int mask, bool vertical) {
     if (iconFlat(Ic::Refresh, tr("Rescan for devices"))) refreshDevices(a), a.devIdx = std::min(a.devIdx, (int)a.devices.size() - 1);
     ImGui::EndDisabled();
     ImGui::EndDisabled();
-    netRadioWindow(a);
-    hamlibRigWindow(a);
     radioMessagesUi(a, vertical);
     {   // a radio too slow for the mode: said here for every mode (the engine's log line was all there was)
         const std::string rw = rateWarning(a);
@@ -1179,7 +1185,7 @@ void sourceOptions(App& a) {
 void statusBar(App& a) {
     // a radio on the network: the samples that did not arrive (the connection dropped and came back, or the receiver was too slow)
     if (a.engine.running() && a.devIdx >= 0 && a.devIdx < (int)a.devices.size() && a.devices[a.devIdx].kind == DeviceInfo::Native &&
-        (a.devices[a.devIdx].board == "rtltcp" || a.devices[a.devIdx].board == "spyserver")) {
+        (a.devices[a.devIdx].board == "rtltcp" || a.devices[a.devIdx].board == "spyserver" || a.devices[a.devIdx].board == "sdrpp")) {
         const uint64_t lost = a.engine.droppedSamples();
         if (lost) ImGui::TextColored(pal::warnAmber(), tr("Network radio: %llu samples lost (underruns)"), (unsigned long long)lost);
     }

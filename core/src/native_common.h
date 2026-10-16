@@ -60,6 +60,14 @@ struct DynLib {
         }
         // The outcome always goes to the log (stderr; onair.log on Windows): when a radio does not show up, this says which library was used or why none was
         for (const auto& n : names) if (tryOpen(n)) { fprintf(stderr, "radio library: %s\n", n.c_str()); fflush(stderr); return true; }
+#if defined(__APPLE__)
+        // a bare name is looked up in /usr/local/lib and /usr/lib only: Homebrew on Apple silicon installs to /opt/homebrew/lib
+        for (const auto& n : names) {
+            if (n.find('/') != std::string::npos) continue;
+            for (const char* dir : {"/opt/homebrew/lib/", "/usr/local/lib/"})
+                if (tryOpen(dir + n)) { fprintf(stderr, "radio library: %s%s\n", dir, n.c_str()); fflush(stderr); return true; }
+        }
+#endif
         if (!names.empty()) { fprintf(stderr, "radio library not found: %s\n", base(names.back()).c_str()); fflush(stderr); }
         return false;
     }
@@ -606,6 +614,34 @@ void spyServerCaps(DeviceInfo& d);
 std::vector<unsigned char> spyServerEncodeCommand(uint32_t type, const std::vector<unsigned char>& body);
 bool spyServerDecodeHeader(const unsigned char* h, uint32_t& type, uint32_t& flags, uint32_t& size);
 bool spyServerDecodeDeviceInfo(const unsigned char* b, uint32_t n, uint32_t& devType, uint32_t& maxRate, uint32_t& decStages, uint32_t& maxGainIndex);
+// An SDR++ server (source_sdrpp.cpp): SDR++ in its headless mode (sdrpp --server), TCP port 5259. sdrppProbe connects and reads the server's
+// menu (remembered per address, for the rates, the gain range and the server's own controls); sdrppCaps sets d's rates, gain range and
+// radio settings from what was last seen of the server.
+DeviceInfo sdrppDevice(const std::string& host, int port);
+std::unique_ptr<IqSource> makeSdrpp(const DeviceInfo& d);
+bool sdrppProbe(const std::string& host, int port, int timeoutMs, std::string& err);
+void sdrppCaps(DeviceInfo& d);
+// One control of the server's menu (SmGui's draw list), as OnAir reads it
+struct SdrppWidget {
+    enum Kind { Combo, Checkbox, Radio, SliderInt, SliderFloat, InputInt, Text } kind = Text;
+    std::string id;                      // the ImGui label the server knows it by ("Bias T##_airspy_Airspy Source"); UI_ACTION names it
+    std::string label;                   // what it is called: its left label, the visible part of the id, or words made from the id
+    std::vector<std::string> items;      // Combo: the entries
+    int i = 0;                           // Combo: the entry chosen
+    bool b = false;                      // Checkbox: on; Radio: this one is chosen
+    double value = 0, minV = 0, maxV = 0, step = 0;   // the sliders and InputInt
+    bool disabled = false;               // greyed out in the server's menu
+};
+// The gain as OnAir drives it: one gain slider, or the LNA / mixer / VGA stages moved together (indices into the menu). The gain range is
+// the slider's own scale, or the sum of the stages' ranges.
+struct SdrppGainPlan { std::vector<int> sliders; double lo = 0, hi = 0, span = 0; bool drivable = false; };
+// The pieces without a socket (unit test): the menu from the bytes of a GET_UI answer (false: not a draw list), a rate text ("2.5MHz")
+// in Hz (0: not a rate), which combo is the sample rate (-1: none), the gain plan, and where a slider goes for a gain
+bool sdrppParseUi(const unsigned char* p, size_t n, std::vector<SdrppWidget>& out);
+double sdrppParseRate(const std::string& text);
+int sdrppRateCombo(const std::vector<SdrppWidget>& ui);
+SdrppGainPlan sdrppGainPlan(const std::vector<SdrppWidget>& ui);
+double sdrppSliderTarget(const SdrppWidget& w, const SdrppGainPlan& g, double gain);
 // A Hermes Lite 2 (source_hermeslite2.cpp) at an IPv4 host and UDP port (1024). hermesLite2Probe sends it a discovery packet and waits for
 // its answer.
 DeviceInfo hermesLite2Device(const std::string& host, int port);

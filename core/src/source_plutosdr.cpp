@@ -45,7 +45,11 @@ struct IioApi {
     bool v1 = false;   // libiio 1.x: another API (iio_create_context(params, uri), blocks instead of buffers), not supported yet
     DynLib lib;
     IioApi() {
-        if (nativeDisabled() || !lib.open(libNames("iio", {".0", ".1"}, {"libiio.dll", "iio.dll"}))) return;
+        std::vector<std::string> names = libNames("iio", {".0", ".1"}, {"libiio.dll", "iio.dll"});
+#if defined(__APPLE__)
+        names.insert(names.begin(), "/Library/Frameworks/iio.framework/iio");   // Analog Devices' macOS installer ships libiio as a framework
+#endif
+        if (nativeDisabled() || !lib.open(names)) return;
         {
             void (DECT2_CALL* get_version)(unsigned*, unsigned*, char*) = nullptr;
             void* (DECT2_CALL* scan1)(const void*, const char*) = nullptr;
@@ -87,6 +91,12 @@ struct IioApi {
     }
     static constexpr const char* kV1Msg = "libiio 1.x found: OnAir needs libiio 0.23-0.26 for now";
 };
+#if defined(__APPLE__)
+constexpr const char* kNoIioMsg = "PlutoSDR: libiio is not installed. Install libiio 0.26 (Analog Devices' macOS package, which puts iio.framework in "
+                                  "/Library/Frameworks, or Homebrew), then start OnAir again";
+#else
+constexpr const char* kNoIioMsg = "PlutoSDR: libiio is not installed (OnAir needs libiio 0.23-0.26)";
+#endif
 IioApi& iio() { static IioApi a; return a; }
 
 namespace {
@@ -193,6 +203,8 @@ public:
 protected:
     bool openDevice(const TuneSettings& s, std::string& err) override {
         if (iio().v1) { err = IioApi::kV1Msg; openFailure_ = OpenFailure::Final; return false; }
+        // a Pluto added by address is listed without libiio: without it (or with one that lacks a call) every iio() pointer is null
+        if (!iio().ok) { err = kNoIioMsg; openFailure_ = OpenFailure::Final; return false; }
         errno = 0;
         ctx_ = iio().create_context_from_uri(uri_.c_str());
         if (!ctx_ && uri_.rfind("usb:", 0) == 0 && !serial_.empty()) {
@@ -427,7 +439,7 @@ public:
     bool open(const TxTune& t, std::string& err) override {
         close();
         if (iio().v1) { err = IioApi::kV1Msg; return false; }
-        if (!iio().ok) { err = "PlutoSDR: libiio is not installed"; return false; }
+        if (!iio().ok) { err = kNoIioMsg; return false; }
         if (!iio().buffer_push) { err = "PlutoSDR: this libiio has no iio_buffer_push, it cannot transmit"; return false; }
         errno = 0;
         ctx_ = iio().create_context_from_uri(uri_.c_str());

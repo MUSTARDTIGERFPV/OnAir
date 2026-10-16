@@ -70,7 +70,7 @@ New here? Press **Tour** in the app: a little TV walks you through OnAir with a 
 - **FM:** a Mono switch for weak stations, a saved-station library, a scan with full RDS.
 - **Scroll to tune:** the wheel (or a trackpad) steps the frequency field digit by digit.
 - **Share my radio:** an rtl_tcp server for the radio OnAir is running.
-- **More radios:** Fobos SDR, RX888 MkII (native USB 3 driver), RFNM, Red Pitaya, Pluto+ Ethernet, SpyServer, Hermes Lite 2.
+- **More radios:** Fobos SDR, RX888 MkII (native USB 3 driver), RFNM, Red Pitaya, Pluto+ Ethernet, SpyServer, SDR++ server, Hermes Lite 2.
 - **Transmit** of test signals into a dummy load, with the modes offered and not offered listed in [docs/TRANSMIT.md](docs/TRANSMIT.md).
 - **New modes** since 0.2.5: Wi-SUN FAN, UAT 978 MHz, VDL Mode 4, TETRAPOL, Elektro-L, LBJ (Chinese railway warnings), DECT, ANT+ sensors, NB-IoT and 5G NR cells, MAC, DVB-C, MeshCom, Q65 and the other WSJT modes, and more (111 modes in all).
 - **Interface:** Light and High contrast themes, an accent colour, colour maps and scroll-back for the spectrum, a General receiver with up to 4 channels and MP3 / FLAC recording, a "Save bug report" zip, translations (German, French, Spanish, Chinese, Lithuanian, Hungarian, Japanese, Polish, Dutch, Portuguese, Italian, Russian).
@@ -296,7 +296,7 @@ OnAir supports the **HackRF One and HackRF Pro** natively, and drives these radi
 | **HackRF One / Pro** | ✅ | ✅ | The radio OnAir is developed and tested with |
 | **BladeRF**, **LimeSDR** | ✅ | ✅ | |
 | **USRP** | ✅ | ✅ | On Windows, install UHD from [Ettus](https://files.ettus.com) (with its firmware images) |
-| **PlutoSDR** | ⚠️ | ✅ | Over its USB cable it streams about 4 Msps, too little for a 6 – 8 MHz channel. Library not included on macOS yet |
+| **PlutoSDR** | ⚠️ | ✅ | Over its USB cable it streams about 4 Msps, too little for a 6 – 8 MHz channel. Library not included on macOS yet: install libiio 0.26 (Analog Devices' macOS package, or Homebrew) |
 | **Airspy R2**, **SDRplay RSP** | Should work | ✅ | SDRplay: install the SDRplay API from [sdrplay.com](https://www.sdrplay.com) first (RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2) |
 | **RTL-SDR** | ❌ | ✅ | An RTL-SDR Blog V4 works for HF on macOS too |
 | **Airspy HF+** | ❌ | Narrow channels only | Specified for HF and 60 – 260 MHz |
@@ -318,15 +318,17 @@ Add them from the source list: **Add network radio…**, choose the type, type i
 
 | Type | Address | Port |
 |---|---|---|
-| **PlutoSDR** by IP (USB network or LAN, with a Link setting Auto / USB / Ethernet on a Pluto+) | `192.168.2.1`, or its address on your network | libiio's default |
+| **PlutoSDR** by IP (USB network or LAN, with a Link setting Auto / USB / Ethernet on a Pluto+; needs libiio 0.23 – 0.26 installed) | `192.168.2.1`, or its address on your network | libiio's default |
 | **rtl_tcp** (an RTL-SDR shared by `rtl_tcp -a 0.0.0.0`) | the computer running `rtl_tcp` | 1234 |
 | **SoapyRemote** (any SoapySDR radio shared by `SoapySDRServer --bind`) | the computer running the server | 55132 |
 | **SpyServer** (Airspy's server, as SDR# and SDR++ use it) | the computer running SpyServer | 5555 |
+| **SDR++ server** (SDR++ run as `sdrpp --server`, any source SDR++ has) | the computer running it | 5259 |
 | **Hermes Lite 2** | found by itself on your networks (or type its address) | 1024 |
 | **Red Pitaya** (SDR transceiver app, HPSDR protocol 1) | found by itself on your networks (or type its address) | 1024 |
 
 - rtl_tcp carries 8-bit samples at up to about 2.5 Msps (more with the Auto server radio setting). SoapyRemote needs SoapySDR with the SoapyRemote module on both computers; if it picks the wrong radio or lists none, type the radio's driver (for example `mirisdr`) in "Remote driver". Do not confuse SpyServer's port 5555 with SoapyRemote's 55132.
 - **SpyServer** is spoken from the public protocol description (2.0.1700): the full IQ stream (8-bit or 16-bit), sample rates from the server's decimation stages, frequency and gain control. Tell us if your server misbehaves.
+- **SDR++ server**: OnAir sets the sample rate and the gain through the server's own source menu, so it works with whatever radio SDR++ drives there, and that source's other controls (gain mode, bias tee, AGC, antenna, the server's source) show up under **Radio settings** as "SDR++: ...". Those are changes to the server: SDR++ keeps them after OnAir disconnects. The server takes one client at a time. See [DEVICES.md](DEVICES.md).
 - **Hermes Lite 2** receives up to 38.4 MHz at 48 to 384 ksps, so only HF and narrow modes fit; the N2ADR filter board's band filters follow the frequency. **Red Pitaya** runs Pavel Demin's HPSDR-compatible SDR transceiver app: one receiver at 48 to 384 ksps, tuning up to 61.44 MHz, no gain control; tested only against a fake server, so sample rate accuracy, level scaling and mirroring (setting "Swap I and Q") are unverified.
 - When a network radio drops, OnAir reconnects by itself, and the status bar shows the samples lost. Nothing is opened to the network by default.
 - **Share my radio** (View > Data feeds): OnAir becomes an rtl_tcp server for the radio it is running, so a second OnAir, SDR#, SDR++ or any rtl_tcp client can listen to the same signal (8-bit IQ at the radio's rate). Only this computer can connect until you tick **Let other computers connect (LAN)**; clients can change the frequency and gain only when **Allow remote control** is ticked.

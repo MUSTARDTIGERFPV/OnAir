@@ -321,9 +321,14 @@ void setupWizard(App& a, ImVec2 disp) {
             }
             ImGui::Spacing();
             ImGui::TextUnformatted(tr("You can go on without one: the synthetic signal and IQ files work with no hardware."));
+            ImGui::TextUnformatted(tr("A radio on the network is not found by looking: add it by its address."));
         }
         ImGui::Spacing();
         if (ImGui::Button(tr("Look again"))) refreshDevices(a);
+        // a radio on the network is never found by looking: it is added by its address (a PlutoSDR by IP, rtl_tcp, SpyServer, SDR++ server, ...)
+        ImGui::SameLine();
+        if (ImGui::Button(tr("Add a network radio..."))) { a.netAddOpen = true; a.netAddErr.clear(); }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("A radio on another computer or on the network: a PlutoSDR by IP, an rtl_tcp server, a SpyServer, an SDR++ server, SoapyRemote, a Hermes Lite 2 or a Red Pitaya"));
         break;
     }
     case 2: {

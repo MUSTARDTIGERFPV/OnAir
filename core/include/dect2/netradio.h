@@ -1,5 +1,5 @@
 // Radios on the network that the user adds by address (issues #28, #54, #68): a PlutoSDR by IP, an rtl_tcp server, a SoapyRemote server,
-// a SpyServer, a Hermes Lite 2 or a Red Pitaya (found by discovery, or by address).
+// a SpyServer, an SDR++ server, a Hermes Lite 2 or a Red Pitaya (found by discovery, or by address).
 // They are listed with the other radios (listRadios) once setNetworkRadios() has them.
 #pragma once
 #include "source.h"
@@ -10,7 +10,7 @@
 namespace dect2 {
 
 struct NetRadio {
-    enum Type { Pluto = 0, RtlTcp = 1, SoapyRemote = 2, SpyServer = 3, HermesLite2 = 4, RedPitaya = 5 } type = RtlTcp;
+    enum Type { Pluto = 0, RtlTcp = 1, SoapyRemote = 2, SpyServer = 3, HermesLite2 = 4, RedPitaya = 5, SdrppServer = 6 } type = RtlTcp;
     std::string host;   // name or address ("ip:" in front of a Pluto's is accepted and dropped)
     int port = 0;       // 0 = the type's default (a Pluto: libiio's own, 30431)
     std::string remote; // SoapyRemote only: which of the server's radios to ask for, "mirisdr" or "driver=mirisdr,serial=1" (empty: the ones it lists)
@@ -32,12 +32,12 @@ std::vector<RemoteSoapyDevice> soapyRemoteList(const NetRadio& r, bool includeAu
 // The plain-language reason a SoapyRemote radio could not be opened: what the server offers and what to type in "Remote driver". "" for other args.
 std::string soapyRemoteFailureHelp(const std::string& soapyArgs);
 
-const char* netRadioTypeName(NetRadio::Type t);       // "PlutoSDR", "rtl_tcp", "SoapyRemote", "SpyServer", "Hermes Lite 2", "Red Pitaya"
-int netRadioDefaultPort(NetRadio::Type t);            // 0 (Pluto), 1234, 55132, 5555, 1024
+const char* netRadioTypeName(NetRadio::Type t);       // "PlutoSDR", "rtl_tcp", "SoapyRemote", "SpyServer", "Hermes Lite 2", "Red Pitaya", "SDR++ server"
+int netRadioDefaultPort(NetRadio::Type t);            // 0 (Pluto), 1234, 55132, 5555, 1024, 5259 (SDR++ server)
 const char* netRadioDefaultHost(NetRadio::Type t);    // "192.168.2.1" for a Pluto, "" otherwise
 int netRadioPort(const NetRadio& r);                  // the port connected to (a Pluto without one: 30431, its iiod)
 
-// The list as the settings keep it: "rtltcp,host,port;pluto,host,0;soapyremote,host,port;spyserver,host,port;hl2,host,port;redpitaya,host,port" (and back; bad
+// The list as the settings keep it: "rtltcp,host,port;pluto,host,0;soapyremote,host,port;spyserver,host,port;hl2,host,port;redpitaya,host,port;sdrpp,host,port" (and back; bad
 // items are skipped)
 std::string netRadiosToString(const std::vector<NetRadio>& v);
 std::vector<NetRadio> netRadiosFromString(const std::string& s);
@@ -52,7 +52,7 @@ std::vector<DeviceInfo> netRadioDevices(const std::vector<NetRadio>& v);
 std::string netRadioDeviceName(const NetRadio& r);
 
 // Whether the radio answers within timeoutMs: a TCP connection to it (an rtl_tcp server must also send its "RTL0" header, a
-// SpyServer its DEVICE_INFO; a Hermes Lite 2 must answer a discovery packet sent to it). Blocks: call it
+// SpyServer its DEVICE_INFO, an SDR++ server its menu; a Hermes Lite 2 must answer a discovery packet sent to it). Blocks: call it
 // on a worker thread. false: err says why, in plain words.
 bool probeNetRadio(const NetRadio& r, int timeoutMs, std::string& err);
 

@@ -21,7 +21,7 @@ std::mutex gNetMu;
 std::vector<NetRadio> gNet;
 
 const char* typeKey(NetRadio::Type t) {
-    return t == NetRadio::Pluto ? "pluto" : t == NetRadio::SoapyRemote ? "soapyremote" : t == NetRadio::SpyServer ? "spyserver" : t == NetRadio::HermesLite2 ? "hl2" : t == NetRadio::RedPitaya ? "redpitaya" : "rtltcp";
+    return t == NetRadio::Pluto ? "pluto" : t == NetRadio::SoapyRemote ? "soapyremote" : t == NetRadio::SpyServer ? "spyserver" : t == NetRadio::HermesLite2 ? "hl2" : t == NetRadio::RedPitaya ? "redpitaya" : t == NetRadio::SdrppServer ? "sdrpp" : "rtltcp";
 }
 
 // the host as typed: no spaces, no "ip:" (a Pluto's libiio URI), no "tcp://" (a SoapyRemote URL)
@@ -38,10 +38,10 @@ std::string hostPort(const std::string& host, int port) {
 
 const char* netRadioTypeName(NetRadio::Type t) {
     return t == NetRadio::Pluto ? "PlutoSDR" : t == NetRadio::SoapyRemote ? "SoapyRemote" : t == NetRadio::SpyServer ? "SpyServer"
-         : t == NetRadio::HermesLite2 ? "Hermes Lite 2" : t == NetRadio::RedPitaya ? "Red Pitaya" : "rtl_tcp";
+         : t == NetRadio::HermesLite2 ? "Hermes Lite 2" : t == NetRadio::RedPitaya ? "Red Pitaya" : t == NetRadio::SdrppServer ? "SDR++ server" : "rtl_tcp";
 }
 int netRadioDefaultPort(NetRadio::Type t) {
-    return t == NetRadio::Pluto ? 0 : t == NetRadio::SoapyRemote ? 55132 : t == NetRadio::SpyServer ? 5555 : (t == NetRadio::HermesLite2 || t == NetRadio::RedPitaya) ? 1024 : 1234;
+    return t == NetRadio::Pluto ? 0 : t == NetRadio::SoapyRemote ? 55132 : t == NetRadio::SpyServer ? 5555 : (t == NetRadio::HermesLite2 || t == NetRadio::RedPitaya) ? 1024 : t == NetRadio::SdrppServer ? 5259 : 1234;
 }
 const char* netRadioDefaultHost(NetRadio::Type t) { return t == NetRadio::Pluto ? "192.168.2.1" : ""; }
 int netRadioPort(const NetRadio& r) {
@@ -80,6 +80,7 @@ std::vector<NetRadio> netRadiosFromString(const std::string& s) {
         else if (t == "spyserver") r.type = NetRadio::SpyServer;
         else if (t == "hl2") r.type = NetRadio::HermesLite2;
         else if (t == "redpitaya") r.type = NetRadio::RedPitaya;
+        else if (t == "sdrpp") r.type = NetRadio::SdrppServer;
         else continue;
         r.host = cleanHost(item.substr(c1 + 1, c2 - c1 - 1));
         r.port = atoi(item.c_str() + c2 + 1);
@@ -218,6 +219,7 @@ std::string netRadioDeviceName(const NetRadio& r) {
     case NetRadio::SpyServer: return native::spyServerDevice(cleanHost(r.host), netRadioPort(r)).name;
     case NetRadio::HermesLite2: return native::hermesLite2Device(cleanHost(r.host), netRadioPort(r)).name;
     case NetRadio::RedPitaya: return native::redPitayaDevice(cleanHost(r.host), netRadioPort(r)).name;
+    case NetRadio::SdrppServer: return native::sdrppDevice(cleanHost(r.host), netRadioPort(r)).name;
     default: return native::rtlTcpDevice(cleanHost(r.host), netRadioPort(r)).name;
     }
 }
@@ -232,6 +234,7 @@ std::vector<DeviceInfo> netRadioDevices(const std::vector<NetRadio>& v) {
         case NetRadio::SpyServer: out.push_back(native::spyServerDevice(cleanHost(r.host), netRadioPort(r))); break;
         case NetRadio::HermesLite2: out.push_back(native::hermesLite2Device(cleanHost(r.host), netRadioPort(r))); break;
         case NetRadio::RedPitaya: out.push_back(native::redPitayaDevice(cleanHost(r.host), netRadioPort(r))); break;
+        case NetRadio::SdrppServer: out.push_back(native::sdrppDevice(cleanHost(r.host), netRadioPort(r))); break;
         case NetRadio::SoapyRemote:
 #ifdef DECT2_HAVE_SOAPY
         {
@@ -261,6 +264,7 @@ bool probeNetRadio(const NetRadio& r, int timeoutMs, std::string& err) {
     if (r.type == NetRadio::SpyServer) return native::spyServerProbe(host, netRadioPort(r), timeoutMs, err);   // HELLO, then its DEVICE_INFO
     if (r.type == NetRadio::HermesLite2) return native::hermesLite2Probe(host, netRadioPort(r), timeoutMs, err);   // UDP: a discovery to it
     if (r.type == NetRadio::RedPitaya) return native::redPitayaProbe(host, netRadioPort(r), timeoutMs, err);
+    if (r.type == NetRadio::SdrppServer) return native::sdrppProbe(host, netRadioPort(r), timeoutMs, err);   // GET_UI, then its menu
     const sock_t s = tcpConnect(host, netRadioPort(r), timeoutMs, err);
     if (s == kBadSock) return false;
     bool ok = true;

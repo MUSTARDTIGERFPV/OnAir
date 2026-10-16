@@ -120,6 +120,36 @@ to about 1.75 GHz) are covered; the sample rate list is 0.25 to 64 Msps.
 - A LimeSDR-USB shares `04b4:00f1`; OnAir tells them apart by the product name ("RX888mk2").
 - Settings: ADC clock (auto, 64, 128 MHz or exact), input (auto, HF, VHF), HF attenuator, dither, randomiser, PGA, bias tee.
 
+# SDR++ server
+
+Tested with SDR++ 1.2 running `sdrpp --server` on a NanoPi R5S with an Airspy R2 (rates, gain, gain modes, bias tee, retuning, a dropped
+connection), and against a fake server in the test suite (`test_sdrpp`).
+
+Add it under **Add network radio...** (or **Add a network radio...** in the setup wizard): type **SDR++ server**, the computer's address,
+port 5259. OnAir reads the server's source menu, so the radio list shows the server's source, its sample rates and its gain range before
+the radio is started.
+
+- **Any SDR++ source.** SDR++ has no protocol command for the sample rate or the gain: they live in the source module's menu, which the
+  server sends to its client as a list of widgets. OnAir picks the sample rate combo (the one whose entries read as rates), the gain
+  slider (an Airspy's linear or sensitive gain, an RTL-SDR's gain, a PlutoSDR's, ...), or, when the source has only stage sliders (LNA,
+  mixer, VGA: an Airspy in Free mode, a HackRF), moves them together. OnAir's gain slider then runs over the server's own scale.
+- **The server's other controls** are under **Radio settings**, named "SDR++: ...": gain mode, bias tee, AGC, offset tuning, antenna, the
+  device and the server's source. Untouched, OnAir leaves them as the server has them; a value set in OnAir is set again whenever the radio
+  starts. **These are changes to the server**: SDR++ keeps them after OnAir disconnects, and another client sees them.
+  **Leave the gain to the server** stops OnAir moving the gain slider.
+- **Sample rate**: the slowest entry of the server's list at or above what the mode needs. SDR++ only takes a new rate (or a new device or
+  source) while it is not streaming, so OnAir stops the stream, changes it and starts again; the samples in between are dropped.
+- **Wire format**: 16-bit (the default), 8-bit (half the network) or float. Compression (zstd) is switched off: OnAir does not read it, and
+  noise-like IQ hardly compresses.
+- **Retuning** never waits for the network: the samples are dropped until the server has answered the change, and two of SDR++'s buffers
+  after that, so the decoder does not see samples from before it.
+- **One client at a time.** While SDR++'s own client (or another OnAir) is connected the server turns OnAir away; the message says so, and
+  OnAir tries again. When the server drops the connection, OnAir reconnects by itself and counts the samples lost.
+- **A link slower than the stream** (Wi-Fi, a VPN, powerline): SDR++ numbers nothing, so OnAir compares what arrives with the rate the
+  server announced. Below 90 % the difference is counted as lost samples (the status bar shows them) and the log says what the link
+  carries; use a lower rate or the 8-bit format. 2.5 Msps needs about 10 MB/s in 16-bit, 10 Msps about 40 MB/s. On a link that cannot carry
+  the stream, SDR++ queues samples inside itself, so a change can take a second or two to show.
+
 # Transmit (the RX / TX switch)
 
 A slider at the top left of the interface (new and classic) switches between **RX** (the normal receiver) and **TX** (the Transmit panel in the main area). The

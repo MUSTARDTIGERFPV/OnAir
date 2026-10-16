@@ -113,7 +113,10 @@ struct FakeSdrpp {
     int sampleType = 1, compression = -1;
     std::atomic<int> cmdDelayMs{0};          // > 0: commands are handled that much later while samples keep flowing (a slow link's queue)
     std::atomic<bool> levelFollowsGain{false};
-    std::atomic<double> throttle{1.0};       // the share of the announced rate that gets through (a link slower than the stream: below 1)   // the samples' I is the linear gain / 32: which gain they were taken with
+    std::atomic<double> throttle{1.0};
+    // SDR++'s connect race: the rate goes out 300 ms after the connection (its handler first stops a running source), and a GET_UI answered
+    // before that leaves with a broken header, as the real server's shared send buffer does
+    std::atomic<bool> racy{false};       // the share of the announced rate that gets through (a link slower than the stream: below 1)   // the samples' I is the linear gain / 32: which gain they were taken with
     double freq = 0;
     std::vector<std::string> log;   // "start", "stop", "action <id>=<value>", "freq <hz>", "type <n>"
 
@@ -236,9 +239,12 @@ struct FakeSdrpp {
     void serve(sock_t c) {
         std::vector<unsigned char> pend;
         { std::lock_guard<std::mutex> lk(mu); running = false; sampleType = 1; compression = 0; }   // server.cpp resets these per client
-        sendRate(c);
+        const auto accepted = std::chrono::steady_clock::now();
+        bool rateSent = !racy;
+        if (rateSent) sendRate(c);
         auto lastSend = std::chrono::steady_clock::now(), pendAt = lastSend;
         while (run && !dropNow) {
+            if (!rateSent && std::chrono::steady_clock::now() - accepted > std::chrono::milliseconds(300)) { sendRate(c); rateSent = true; }
             fd_set rd; FD_ZERO(&rd); FD_SET(c, &rd); FD_SET(ls, &rd);
             timeval tv{0, 1000};
             const int sel = select((int)std::max(c, ls) + 1, &rd, nullptr, nullptr, &tv);
@@ -260,7 +266,12 @@ struct FakeSdrpp {
                         const uint32_t cmd = g32(pend.data() + 8);
                         const unsigned char* a = pend.data() + 12;
                         const size_t an = size - 12;
-                        if (cmd == 0) { std::vector<unsigned char> m; { std::lock_guard<std::mutex> lk(mu); m = menu(); } command(c, 1, 0, m); }
+                        if (cmd == 0 && !rateSent) {   // the race: the menu with the rate packet's 20-byte header
+                            std::vector<unsigned char> m; { std::lock_guard<std::mutex> lk(mu); m = menu(); }
+                            std::vector<unsigned char> b2; u32(b2, 1); u32(b2, 20); u32(b2, 0); b2.insert(b2.end(), m.begin(), m.end());
+                            sockSendAll(c, b2.data(), b2.size());
+                            { std::lock_guard<std::mutex> lk(mu); log.push_back("garbled"); }
+                        } else if (cmd == 0) { std::vector<unsigned char> m; { std::lock_guard<std::mutex> lk(mu); m = menu(); } command(c, 1, 0, m); }
                         else if (cmd == 1) apply(c, a, an);
                         else if (cmd == 2) { std::lock_guard<std::mutex> lk(mu); running = true; log.push_back("start"); }
                         else if (cmd == 3) { std::lock_guard<std::mutex> lk(mu); running = false; log.push_back("stop"); }
@@ -498,6 +509,32 @@ static void testClient() {
     CHECK(!probeNetRadio(none, 1000, err) && !err.empty());
 }
 
+// a server started with --autostart: streaming when the client connects, so SDR++ sends its rate late and garbles a GET_UI asked before it
+static void testConnectRace() {
+    FakeSdrpp srv;
+    srv.racy = true;
+    CHECK(srv.start());
+    if (!srv.port) return;
+    NetRadio nr; nr.type = NetRadio::SdrppServer; nr.host = "127.0.0.1"; nr.port = srv.port;
+    std::string err;
+    for (int i = 0; i < 3; i++) {
+        err.clear();
+        CHECK(probeNetRadio(nr, 2000, err));
+        if (!err.empty()) fprintf(stderr, "probe: %s\n", err.c_str());
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    }
+    auto src = makeSource(netRadioDevices({nr})[0]);
+    IqRing ring(1u << 20);
+    TuneSettings s; s.sampleRate = 2.2e6; s.centerHz = 100e6; s.gainDb = 10;
+    err.clear();
+    CHECK(src->start(s, ring, err));
+    std::vector<cf32> buf(4096);
+    CHECK(readIq(ring, buf));
+    CHECK(!srv.has("garbled"));
+    src->stop();
+    srv.stop();
+}
+
 static void testPrefs() {
     NetRadio a; a.type = NetRadio::SdrppServer; a.host = "192.168.150.78"; a.port = 5259;
     NetRadio b; b.type = NetRadio::SpyServer; b.host = "spy.lan"; b.port = 5555;
@@ -513,6 +550,7 @@ int main() {
     testRates();
     testPrefs();
     testClient();
+    testConnectRace();
     if (fails) { fprintf(stderr, "%d failure(s)\n", fails); return 1; }
     printf("sdrpp: all passed\n");
     return 0;

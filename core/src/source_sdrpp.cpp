@@ -418,7 +418,7 @@ public:
         sock_ = s;
         dead_ = false; busy_ = false; badPacket_ = false;
         for (auto& a : acks_) a = 0;
-        flushing_ = false; tail_ = 0;
+        flushing_ = false; tail_ = 0; goodPackets_ = 0;
         lastRx_ = std::chrono::steady_clock::now();
         return true;
     }
@@ -481,6 +481,18 @@ public:
             }
         }
     }
+    // The sample rate the server sends when it takes a client, at the end of its connect handler. Nothing may be asked before it: SDR++'s
+    // server builds that packet and its answers in one buffer without a lock, and its connect handler first stops a running source (slow,
+    // for a server started with --autostart), so a GET_UI answered meanwhile goes out with the other packet's header and the stream is out
+    // of step from there on. false: none came within ms (an older server: go on anyway) or the server turned this client away.
+    bool waitGreeting(int ms) {
+        const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+        while (rate() <= 0 && !isDead() && std::chrono::steady_clock::now() < end) {
+            std::lock_guard<std::mutex> lk(readMu_);
+            if (readOne(100) < 0) return false;
+        }
+        return rate() > 0;
+    }
     // GET_UI and its answer (the menu); the sample rate the server sends at connect usually comes first
     bool fetchUi(int ms) {
         const uint64_t n = acks(kCmdGetUi);
@@ -515,7 +527,7 @@ public:
         if (size < 8 || size > kMaxPacket || type > kPktError) { { std::lock_guard<std::mutex> lk(stMu_); badPacket_ = true; } return fail(-1); }
         body_.resize(size - 8);
         if (!body_.empty() && !sockRecvAll(sock_, body_.data(), body_.size())) return fail(-1);
-        { std::lock_guard<std::mutex> lk(stMu_); lastRx_ = std::chrono::steady_clock::now(); }
+        { std::lock_guard<std::mutex> lk(stMu_); lastRx_ = std::chrono::steady_clock::now(); goodPackets_++; }
         handle(type, body_.data(), body_.size());
         return isDead() ? -1 : 1;
     }
@@ -526,6 +538,7 @@ public:
     bool dropping() { std::lock_guard<std::mutex> lk(stMu_); return discard_ || flushing_ || tail_ > 0; }
     bool busy() { std::lock_guard<std::mutex> lk(stMu_); return busy_; }
     bool badPacket() { std::lock_guard<std::mutex> lk(stMu_); return badPacket_; }
+    uint64_t goodPackets() { std::lock_guard<std::mutex> lk(stMu_); return goodPackets_; }
     bool sawZstd() { std::lock_guard<std::mutex> lk(stMu_); return zstd_; }
     void expectStream(bool on) { std::lock_guard<std::mutex> lk(stMu_); expectStream_ = on; }
     bool expectingStream() { std::lock_guard<std::mutex> lk(stMu_); return expectStream_; }
@@ -629,6 +642,7 @@ private:
     bool dead_ = false, busy_ = false, badPacket_ = false, zstd_ = false, expectStream_ = false, discard_ = false, flushing_ = false;
     uint32_t flushCmd_ = 0;
     int tail_ = 0;
+    uint64_t goodPackets_ = 0;
     uint64_t flushAt_ = 0;
     std::chrono::steady_clock::time_point lastRx_{};
     std::string lastError_;
@@ -646,8 +660,10 @@ bool hello(Link& l, const std::string& addr, int timeoutMs, std::string& err, bo
     retry = false;
     std::string e;
     if (!l.connect(timeoutMs, e)) { err = e; retry = true; return false; }
+    if (!l.waitGreeting(timeoutMs) && l.busy()) { err = busyText(addr); retry = true; return false; }
     if (!l.fetchUi(timeoutMs)) {
         if (l.busy()) { err = busyText(addr); retry = true; }
+        else if (l.badPacket() && l.goodPackets()) { err = addr + " sent a garbled reply (SDR++'s server can mix up two of its packets)"; retry = true; }
         else if (l.badPacket()) err = addr + " is not an SDR++ server";
         else err = l.isDead() ? "the connection to " + addr + " dropped" : silentText(addr);
         return false;
